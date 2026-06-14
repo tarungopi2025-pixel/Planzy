@@ -11,15 +11,11 @@ class Streak extends HiveObject {
   int longestStreak;
 
   @HiveField(2)
-  DateTime? lastActiveDate;
-
-  @HiveField(3)
-  int totalActiveDays;
+  DateTime lastActiveDate;
 
   Streak({
-    this.currentStreak = 0,
-    this.longestStreak = 0,
-    this.lastActiveDate,
-    this.totalActiveDays = 0,
+    required this.currentStreak,
+    required this.longestStreak,
+    required this.lastActiveDate,
   });
 }

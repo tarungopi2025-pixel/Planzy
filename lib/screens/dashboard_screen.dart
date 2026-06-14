@@ -1,101 +1,147 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:hive/hive.dart';
 
-import '../models/task.dart';
+import '../models/settings.dart';
+import '../models/streak.dart';
+import '../services/productivity_service.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
   @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  late Box<Settings> settingsBox;
+  late Box<Streak> streakBox;
+
+  @override
+  void initState() {
+    super.initState();
+    settingsBox = Hive.box<Settings>('settings');
+    streakBox = Hive.box<Streak>('streak');
+  }
+
+  void _refresh() => setState(() {});
+
+  @override
   Widget build(BuildContext context) {
-    final box = Hive.box<Task>('tasks');
+    final settings =
+        settingsBox.isNotEmpty ? settingsBox.getAt(0)! : Settings();
+
+    final streak = streakBox.isNotEmpty ? streakBox.getAt(0)! : null;
+
+    final score = ProductivityService.calculateProductivityScore();
+    final level = ProductivityService.getProductivityLevel(score);
 
     return Scaffold(
+      backgroundColor: const Color(0xFF0B1B3A), // DARK BLUE BASE
+
       appBar: AppBar(
         title: const Text('Dashboard'),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white),
+            onPressed: _refresh,
+          )
+        ],
       ),
-      body: ValueListenableBuilder(
-        valueListenable: box.listenable(),
-        builder: (context, Box<Task> box, _) {
-          final tasks = box.values.toList();
 
-          final total = tasks.length;
-          final completed = tasks.where((t) => t.isCompleted).length;
-          final pending = total - completed;
-          final completionRate =
-              total == 0 ? 0 : (completed / total * 100).round();
-
-          return Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                _card(
-                  icon: Icons.list_alt,
-                  title: "Total Tasks",
-                  value: total.toString(),
-                  color: Colors.blue,
-                ),
-                const SizedBox(height: 12),
-                _card(
-                  icon: Icons.check_circle,
-                  title: "Completed",
-                  value: completed.toString(),
-                  color: Colors.green,
-                ),
-                const SizedBox(height: 12),
-                _card(
-                  icon: Icons.pending_actions,
-                  title: "Pending",
-                  value: pending.toString(),
-                  color: Colors.orange,
-                ),
-                const SizedBox(height: 12),
-                _card(
-                  icon: Icons.trending_up,
-                  title: "Completion Rate",
-                  value: "$completionRate%",
-                  color: Colors.purple,
-                ),
-              ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            _card(
+              title: "Level",
+              value: "${settings.currentLevel}",
+              icon: Icons.emoji_events,
+              color: const Color(0xFF4DA3FF),
             ),
-          );
-        },
+            _card(
+              title: "XP Earned",
+              value: "${settings.totalXP}",
+              icon: Icons.bolt,
+              color: const Color(0xFF00C2FF),
+            ),
+            _card(
+              title: "Current Streak",
+              value: "${streak?.currentStreak ?? 0}",
+              icon: Icons.local_fire_department,
+              color: const Color(0xFFFFB703),
+            ),
+            _card(
+              title: "Productivity Score",
+              value: "$score ($level)",
+              icon: Icons.insights,
+              color: const Color(0xFF2EE6A6),
+            ),
+            _card(
+              title: "Next Level Progress",
+              value: "${settings.totalXP % 100}/100 XP",
+              icon: Icons.trending_up,
+              color: const Color(0xFF7C4DFF),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _card({
-    required IconData icon,
     required String title,
     required String value,
+    required IconData icon,
     required Color color,
   }) {
     return Container(
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.5)),
-        color: color.withOpacity(0.08),
+        color: const Color(0xFF13294B), // DARK CARD
+        borderRadius: BorderRadius.circular(14),
+        border: Border(
+          left: BorderSide(
+            color: color,
+            width: 5,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.35),
+            blurRadius: 10,
+            offset: const Offset(0, 6),
+          )
+        ],
       ),
       child: Row(
         children: [
-          Icon(icon, color: color, size: 28),
-          const SizedBox(width: 16),
+          Icon(icon, color: color, size: 26),
+          const SizedBox(width: 14),
           Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: color,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+              ],
             ),
           ),
         ],

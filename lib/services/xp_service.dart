@@ -4,29 +4,42 @@ import '../models/task.dart';
 import '../models/settings.dart';
 import '../models/xp_history.dart';
 import 'achievement_service.dart';
+import 'streak_service.dart';
+import 'audio_service.dart';
 
 class XPService {
   static const int baseXP = 10;
 
+  /// Call when task is completed
   static Future<void> addXP(Task task) async {
     final settingsBox = Hive.box<Settings>('settings');
     final historyBox = Hive.box<XPHistory>('xp_history');
 
     final settings = _getSettings(settingsBox);
 
+    final oldLevel = settings.currentLevel;
+
     final xpGain = _calculateXP(task);
 
-    // update total XP
     settings.totalXP += xpGain;
     settings.currentLevel = _calculateLevel(settings.totalXP);
+
     await settings.save();
 
-    // store history (IMPORTANT: consistent field usage)
     await _addHistory(historyBox, xpGain, task);
 
+    await StreakService.updateStreak();
+
     await AchievementService.checkAndUnlock();
+
+    await AudioService.playComplete();
+
+    if (settings.currentLevel > oldLevel) {
+      await AudioService.playLevelUp();
+    }
   }
 
+  /// Call when task is unchecked
   static Future<void> removeXP(Task task) async {
     final settingsBox = Hive.box<Settings>('settings');
     final historyBox = Hive.box<XPHistory>('xp_history');
@@ -42,6 +55,7 @@ class XPService {
     }
 
     settings.currentLevel = _calculateLevel(settings.totalXP);
+
     await settings.save();
 
     await _addHistory(historyBox, -xpLoss, task);
@@ -66,12 +80,9 @@ class XPService {
 
   static Settings _getSettings(Box<Settings> box) {
     if (box.isEmpty) {
-      final settings = Settings(
-        totalXP: 0,
-        currentLevel: 1,
-      );
-      box.add(settings);
-      return settings;
+      final s = Settings();
+      box.add(s);
+      return s;
     }
     return box.getAt(0)!;
   }

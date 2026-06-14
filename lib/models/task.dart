@@ -34,12 +34,17 @@ class Task extends HiveObject {
   @HiveField(5)
   DateTime? completedAt;
 
+  // ✅ NEW FIELD (DUE DATE)
+  @HiveField(6)
+  DateTime? dueDate;
+
   Task({
     required this.title,
     required this.description,
     required this.priority,
     this.isCompleted = false,
-    DateTime? createdAt,
     this.completedAt,
+    this.dueDate,
+    DateTime? createdAt,
   }) : createdAt = createdAt ?? DateTime.now();
 }

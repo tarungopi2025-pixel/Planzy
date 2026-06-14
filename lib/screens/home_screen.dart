@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/task.dart';
@@ -71,6 +72,10 @@ class _HomeScreenState extends State<HomeScreen> {
     if (mounted) setState(() {});
   }
 
+  void _onDelete(Task task) {
+    HapticFeedback.mediumImpact(); // 🔥 PREMIUM FEEL
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -135,12 +140,52 @@ class _HomeScreenState extends State<HomeScreen> {
               return Dismissible(
                 key: Key(task.key.toString()),
                 direction: DismissDirection.endToStart,
-                onDismissed: (_) => deleteTask(index),
-                background: Container(color: Colors.red),
-                child: TaskCard(
-                  task: task,
-                  onToggle: () => toggleTask(index, task),
+                resizeDuration: const Duration(milliseconds: 200),
+                movementDuration: const Duration(milliseconds: 250),
+                background: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFFFF4B2B),
+                        Color(0xFFFF416C),
+                      ],
+                    ),
+                  ),
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 20),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Icon(
+                        Icons.delete_outline,
+                        color: Colors.white,
+                        size: 28,
+                      ),
+                      SizedBox(width: 10),
+                      Text(
+                        "Delete",
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 16,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  child: TaskCard(
+                    task: task,
+                    onToggle: () => toggleTask(index, task),
+                  ),
+                ),
+                onDismissed: (_) async {
+                  _onDelete(task); // haptic first
+                  await deleteTask(index);
+                },
               );
             },
           );
