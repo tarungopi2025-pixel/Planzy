@@ -8,51 +8,134 @@ class StreakService {
 
   static Streak get _streak {
     if (_box.isEmpty) {
-      final s = Streak(
+      final streak = Streak(
         currentStreak: 0,
         longestStreak: 0,
-        lastActiveDate: DateTime.now(),
+        lastActiveDate: DateTime(2000, 1, 1),
       );
-      _box.add(s);
-      return s;
+
+      _box.add(streak);
+      return streak;
     }
+
     return _box.getAt(0)!;
   }
 
+  static DateTime _dateOnly(DateTime date) {
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+    );
+  }
+
+  /// Call this whenever the user COMPLETES a task.
+  ///
+  /// Rule:
+  /// One completed task per day keeps the streak alive.
+  /// Creating a task alone does not count.
   static Future<void> updateStreak() async {
     final streak = _streak;
 
     final now = DateTime.now();
-    final last = streak.lastActiveDate;
+    final today = _dateOnly(now);
+    final lastActiveDay = _dateOnly(streak.lastActiveDate);
 
-    // Normalize dates (important fix)
-    final today = DateTime(now.year, now.month, now.day);
-    final lastDay = DateTime(last.year, last.month, last.day);
+    final difference = today.difference(lastActiveDay).inDays;
 
-    final difference = today.difference(lastDay).inDays;
+    // Safety: if device date/time changed into future or corrupted.
+    if (difference < 0) {
+      streak.currentStreak = 1;
+      streak.lastActiveDate = now;
 
-    // Same day → do nothing
-    if (difference == 0) return;
+      if (streak.currentStreak > streak.longestStreak) {
+        streak.longestStreak = streak.currentStreak;
+      }
 
-    // Next day → increment streak
+      await streak.save();
+      return;
+    }
+
+    // First valid completion ever.
+    if (streak.currentStreak == 0) {
+      streak.currentStreak = 1;
+      streak.lastActiveDate = now;
+
+      if (streak.currentStreak > streak.longestStreak) {
+        streak.longestStreak = streak.currentStreak;
+      }
+
+      await streak.save();
+      await AudioService.playAchievement();
+      return;
+    }
+
+    // Same day completion:
+    // Do not increase streak multiple times in one day.
+    if (difference == 0) {
+      return;
+    }
+
+    // Next day completion:
+    // User maintained consistency.
     if (difference == 1) {
       streak.currentStreak += 1;
+      streak.lastActiveDate = now;
 
-      await AudioService.playStreak();
+      if (streak.currentStreak > streak.longestStreak) {
+        streak.longestStreak = streak.currentStreak;
+      }
+
+      await streak.save();
+      await AudioService.playAchievement();
+      return;
     }
-    // Missed days → reset streak
-    else {
+
+    // Missed one or more full days:
+    // Old streak is broken. New streak starts today.
+    if (difference > 1) {
       streak.currentStreak = 1;
+      streak.lastActiveDate = now;
+
+      if (streak.currentStreak > streak.longestStreak) {
+        streak.longestStreak = streak.currentStreak;
+      }
+
+      await streak.save();
+      return;
+    }
+  }
+
+  /// Call this when HomeScreen opens or refreshes.
+  ///
+  /// This makes the streak become 0 automatically if the user missed a day,
+  /// even before they complete another task.
+  static Future<void> refreshStreakStatus() async {
+    final streak = _streak;
+
+    if (streak.currentStreak == 0) return;
+
+    final now = DateTime.now();
+    final today = _dateOnly(now);
+    final lastActiveDay = _dateOnly(streak.lastActiveDate);
+
+    final difference = today.difference(lastActiveDay).inDays;
+
+    // Same day or next day: streak is still alive.
+    if (difference == 0 || difference == 1) return;
+
+    // Missed one full day or more: streak breaks.
+    if (difference > 1) {
+      streak.currentStreak = 0;
+      await streak.save();
     }
 
-    // Update longest streak
-    if (streak.currentStreak > streak.longestStreak) {
-      streak.longestStreak = streak.currentStreak;
+    // Safety for wrong/future device date.
+    if (difference < 0) {
+      streak.currentStreak = 0;
+      streak.lastActiveDate = now;
+      await streak.save();
     }
-
-    streak.lastActiveDate = now;
-
-    await streak.save();
   }
 
   static int getCurrentStreak() {
@@ -61,5 +144,18 @@ class StreakService {
 
   static int getLongestStreak() {
     return _streak.longestStreak;
+  }
+
+  static DateTime getLastActiveDate() {
+    return _streak.lastActiveDate;
+  }
+
+  static Future<void> resetStreak() async {
+    final streak = _streak;
+
+    streak.currentStreak = 0;
+    streak.lastActiveDate = DateTime(2000, 1, 1);
+
+    await streak.save();
   }
 }

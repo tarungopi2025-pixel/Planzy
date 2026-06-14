@@ -18,8 +18,12 @@ dependencies:
   hive_flutter: ^1.1.0
 
   path_provider: ^2.1.5
+  share_plus: ^13.1.0
+  cross_file: ^0.3.4+2
 
-  audioplayers: ^6.7.1
+  
+
+  
 
   intl: ^0.20.2
 

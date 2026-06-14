@@ -1,27 +1,29 @@
-import 'package:audioplayers/audioplayers.dart';
-
 class AudioService {
-  static Future<void> _play(String path) async {
-    final player = AudioPlayer();
+  static bool _enabled = false;
 
-    await player.setReleaseMode(ReleaseMode.stop);
+  static Future<void> init() async {}
 
-    try {
-      await player.play(AssetSource(path));
-    } catch (e) {
-      // Debug fallback (silent fail protection)
-      print("Audio error: $path -> $e");
-    }
+  static bool get isEnabled => _enabled;
+
+  static void setEnabled(bool value) {
+    _enabled = value;
   }
 
-  static Future<void> playComplete() => _play('audio/complete_task.mp3');
+  static Future<void> playClick() async {}
 
-  static Future<void> playLevelUp() => _play('audio/level_up.mp3');
+  static Future<void> playOpen() async {}
 
-  static Future<void> playStreak() => _play('audio/streak_update.mp3');
+  static Future<void> playAddTask() async {}
 
-  static Future<void> playClick() => _play('audio/click_soft.mp3');
+  static Future<void> playComplete() async {}
 
-  static Future<void> playAchievement() =>
-      _play('audio/achievement_unlock.mp3');
+  static Future<void> playDelete() async {}
+
+  static Future<void> playLevelUp() async {}
+
+  static Future<void> playAchievement() async {}
+
+  static Future<void> playError() async {}
+
+  static Future<void> dispose() async {}
 }

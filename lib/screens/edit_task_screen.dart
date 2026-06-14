@@ -1,56 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '../models/task.dart';
+import '../services/audio_service.dart';
 
-class AddTaskScreen extends StatefulWidget {
-  const AddTaskScreen({super.key});
+class EditTaskScreen extends StatefulWidget {
+  final Task task;
+
+  const EditTaskScreen({
+    super.key,
+    required this.task,
+  });
 
   @override
-  State<AddTaskScreen> createState() => _AddTaskScreenState();
+  State<EditTaskScreen> createState() => _EditTaskScreenState();
 }
 
-class _AddTaskScreenState extends State<AddTaskScreen>
+class _EditTaskScreenState extends State<EditTaskScreen>
     with TickerProviderStateMixin {
-  final TextEditingController titleController = TextEditingController();
-  final TextEditingController descriptionController = TextEditingController();
+  late TextEditingController titleController;
+  late TextEditingController descriptionController;
 
   final FocusNode titleFocus = FocusNode();
   final FocusNode descriptionFocus = FocusNode();
 
   late AnimationController entranceController;
-  late AnimationController buttonController;
-  late AnimationController priorityController;
-
   late Animation<double> fadeAnimation;
   late Animation<Offset> slideAnimation;
   late Animation<double> scaleAnimation;
-  late Animation<double> buttonScaleAnimation;
 
-  TaskPriority selectedPriority = TaskPriority.medium;
+  late TaskPriority selectedPriority;
   DateTime? selectedDueDate;
 
-  bool isCreating = false;
+  bool isSaving = false;
 
   @override
   void initState() {
     super.initState();
 
+    titleController = TextEditingController(text: widget.task.title);
+    descriptionController =
+        TextEditingController(text: widget.task.description);
+
+    selectedPriority = widget.task.priority;
+    selectedDueDate = widget.task.dueDate;
+
     entranceController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
-    );
-
-    buttonController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 160),
-      lowerBound: 0.96,
-      upperBound: 1.0,
-    );
-
-    priorityController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 300),
+      duration: const Duration(milliseconds: 650),
     );
 
     fadeAnimation = CurvedAnimation(
@@ -59,7 +57,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     );
 
     slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.08),
+      begin: const Offset(0, 0.06),
       end: Offset.zero,
     ).animate(
       CurvedAnimation(
@@ -78,13 +76,8 @@ class _AddTaskScreenState extends State<AddTaskScreen>
       ),
     );
 
-    buttonScaleAnimation = CurvedAnimation(
-      parent: buttonController,
-      curve: Curves.easeOut,
-    );
-
-    buttonController.value = 1;
     entranceController.forward();
+    AudioService.playOpen();
   }
 
   @override
@@ -96,8 +89,6 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     descriptionFocus.dispose();
 
     entranceController.dispose();
-    buttonController.dispose();
-    priorityController.dispose();
 
     super.dispose();
   }
@@ -125,7 +116,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
   }
 
   String get dueDateText {
-    if (selectedDueDate == null) return "Select due date";
+    if (selectedDueDate == null) return "No due date";
 
     final day = selectedDueDate!.day.toString().padLeft(2, '0');
     final month = selectedDueDate!.month.toString().padLeft(2, '0');
@@ -136,6 +127,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
 
   Future<void> pickDueDate() async {
     HapticFeedback.selectionClick();
+    AudioService.playClick();
 
     final now = DateTime.now();
 
@@ -172,47 +164,86 @@ class _AddTaskScreenState extends State<AddTaskScreen>
 
   void selectPriority(TaskPriority priority) {
     HapticFeedback.selectionClick();
+    AudioService.playClick();
 
     setState(() {
       selectedPriority = priority;
     });
-
-    priorityController.forward(from: 0);
   }
 
-  Future<void> createTask() async {
+  void postponeByDays(int days) {
+    HapticFeedback.selectionClick();
+    AudioService.playClick();
+
+    final baseDate = selectedDueDate ?? DateTime.now();
+
+    setState(() {
+      selectedDueDate = DateTime(
+        baseDate.year,
+        baseDate.month,
+        baseDate.day + days,
+      );
+    });
+  }
+
+  void clearDueDate() {
+    HapticFeedback.selectionClick();
+    AudioService.playClick();
+
+    setState(() {
+      selectedDueDate = null;
+    });
+  }
+
+  Future<void> saveTask() async {
     final title = titleController.text.trim();
     final description = descriptionController.text.trim();
 
     if (title.isEmpty) {
       HapticFeedback.heavyImpact();
-      _showSnack("Task title cannot be empty");
+      await AudioService.playError();
+      _showSnack("Task name cannot be empty");
       return;
     }
 
-    if (isCreating) return;
+    if (isSaving) return;
 
     setState(() {
-      isCreating = true;
+      isSaving = true;
     });
 
     HapticFeedback.mediumImpact();
+    await AudioService.playAddTask();
 
-    await buttonController.reverse();
-    await buttonController.forward();
+    final key = widget.task.key;
+
+    if (key == null) {
+      if (!mounted) return;
+      Navigator.pop(context, false);
+      return;
+    }
+
+    final taskBox = Hive.box<Task>('tasks');
+    final storedTask = taskBox.get(key);
+
+    if (storedTask == null) {
+      if (!mounted) return;
+      Navigator.pop(context, false);
+      return;
+    }
+
+    storedTask.title = title;
+    storedTask.description = description;
+    storedTask.priority = selectedPriority;
+    storedTask.dueDate = selectedDueDate;
+
+    await storedTask.save();
 
     await Future.delayed(const Duration(milliseconds: 180));
 
     if (!mounted) return;
 
-    final task = Task(
-      title: title,
-      description: description,
-      priority: selectedPriority,
-      dueDate: selectedDueDate,
-    );
-
-    Navigator.pop(context, task);
+    Navigator.pop(context, true);
   }
 
   void _showSnack(String message) {
@@ -223,10 +254,10 @@ class _AddTaskScreenState extends State<AddTaskScreen>
         content: Text(message),
         backgroundColor: const Color(0xFFFF5C7A),
         behavior: SnackBarBehavior.floating,
+        margin: const EdgeInsets.all(16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
         ),
-        margin: const EdgeInsets.all(16),
       ),
     );
   }
@@ -244,7 +275,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
               scale: scaleAnimation,
               child: Column(
                 children: [
-                  _header(context),
+                  _header(),
                   Expanded(
                     child: SingleChildScrollView(
                       physics: const BouncingScrollPhysics(),
@@ -256,13 +287,13 @@ class _AddTaskScreenState extends State<AddTaskScreen>
                           const SizedBox(height: 18),
                           _sectionTitle("Task Details"),
                           const SizedBox(height: 10),
-                          _glassInputCard(
+                          _inputCard(
                             child: Column(
                               children: [
                                 _premiumTextField(
                                   controller: titleController,
                                   focusNode: titleFocus,
-                                  hintText: "Task title",
+                                  hintText: "Task name",
                                   maxLines: 1,
                                   icon: Icons.edit_note,
                                 ),
@@ -282,9 +313,11 @@ class _AddTaskScreenState extends State<AddTaskScreen>
                           const SizedBox(height: 10),
                           _prioritySelector(),
                           const SizedBox(height: 22),
-                          _sectionTitle("Schedule"),
+                          _sectionTitle("Due Date"),
                           const SizedBox(height: 10),
                           _dateSelector(),
+                          const SizedBox(height: 14),
+                          _postponeOptions(),
                           const SizedBox(height: 22),
                           _summaryCard(),
                         ],
@@ -297,11 +330,11 @@ class _AddTaskScreenState extends State<AddTaskScreen>
           ),
         ),
       ),
-      bottomNavigationBar: _bottomCreateButton(),
+      bottomNavigationBar: _bottomSaveButton(),
     );
   }
 
-  Widget _header(BuildContext context) {
+  Widget _header() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
       child: Row(
@@ -309,10 +342,10 @@ class _AddTaskScreenState extends State<AddTaskScreen>
           GestureDetector(
             onTap: () {
               HapticFeedback.selectionClick();
-              Navigator.pop(context);
+              AudioService.playClick();
+              Navigator.pop(context, false);
             },
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 220),
+            child: Container(
               width: 44,
               height: 44,
               decoration: BoxDecoration(
@@ -332,12 +365,12 @@ class _AddTaskScreenState extends State<AddTaskScreen>
           const SizedBox(width: 14),
           const Expanded(
             child: Text(
-              "Create Task",
+              "Edit Task",
               style: TextStyle(
                 color: Colors.white,
                 fontSize: 22,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.4,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5,
               ),
             ),
           ),
@@ -348,7 +381,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
 
   Widget _heroCard() {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 350),
+      duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
       width: double.infinity,
       padding: const EdgeInsets.all(18),
@@ -356,38 +389,38 @@ class _AddTaskScreenState extends State<AddTaskScreen>
         gradient: LinearGradient(
           colors: [
             const Color(0xFF102A4A),
-            priorityColor.withOpacity(0.18),
+            priorityColor.withOpacity(0.14),
           ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(24),
         border: Border.all(
-          color: priorityColor.withOpacity(0.25),
+          color: priorityColor.withOpacity(0.26),
         ),
         boxShadow: [
           BoxShadow(
-            color: priorityColor.withOpacity(0.12),
-            blurRadius: 28,
-            offset: const Offset(0, 12),
+            color: Colors.black.withOpacity(0.16),
+            blurRadius: 18,
+            offset: const Offset(0, 9),
           ),
         ],
       ),
       child: Row(
         children: [
           AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
+            duration: const Duration(milliseconds: 260),
             width: 54,
             height: 54,
             decoration: BoxDecoration(
               color: priorityColor.withOpacity(0.15),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
-                color: priorityColor.withOpacity(0.4),
+                color: priorityColor.withOpacity(0.36),
               ),
             ),
             child: Icon(
-              Icons.auto_awesome,
+              Icons.tune,
               color: priorityColor,
               size: 26,
             ),
@@ -398,17 +431,17 @@ class _AddTaskScreenState extends State<AddTaskScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  "Plan smarter",
+                  "Refine your task",
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 18,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w900,
                     letterSpacing: -0.3,
                   ),
                 ),
                 const SizedBox(height: 5),
                 Text(
-                  "Create a focused task and earn XP when completed.",
+                  "Edit the name, priority, description, or postpone the due date.",
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.58),
                     fontSize: 12,
@@ -429,16 +462,13 @@ class _AddTaskScreenState extends State<AddTaskScreen>
       style: TextStyle(
         color: Colors.white.withOpacity(0.72),
         fontSize: 13,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 0.2,
+        fontWeight: FontWeight.w800,
       ),
     );
   }
 
-  Widget _glassInputCard({required Widget child}) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 260),
-      curve: Curves.easeOutCubic,
+  Widget _inputCard({required Widget child}) {
+    return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFF102A4A),
@@ -449,8 +479,8 @@ class _AddTaskScreenState extends State<AddTaskScreen>
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.16),
-            blurRadius: 24,
-            offset: const Offset(0, 12),
+            blurRadius: 18,
+            offset: const Offset(0, 9),
           ),
         ],
       ),
@@ -471,7 +501,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
         final focused = focusNode.hasFocus;
 
         return AnimatedContainer(
-          duration: const Duration(milliseconds: 260),
+          duration: const Duration(milliseconds: 240),
           curve: Curves.easeOutCubic,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
           decoration: BoxDecoration(
@@ -481,7 +511,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: focused
-                  ? priorityColor.withOpacity(0.7)
+                  ? priorityColor.withOpacity(0.65)
                   : Colors.white.withOpacity(0.06),
             ),
           ),
@@ -492,8 +522,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
             children: [
               Padding(
                 padding: EdgeInsets.only(top: maxLines > 1 ? 12 : 0),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
+                child: Container(
                   width: 30,
                   height: 30,
                   decoration: BoxDecoration(
@@ -525,7 +554,6 @@ class _AddTaskScreenState extends State<AddTaskScreen>
                     hintText: hintText,
                     hintStyle: TextStyle(
                       color: Colors.white.withOpacity(0.32),
-                      fontSize: 14,
                     ),
                     border: InputBorder.none,
                   ),
@@ -539,8 +567,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
   }
 
   Widget _prioritySelector() {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 260),
+    return Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
         color: const Color(0xFF102A4A),
@@ -600,18 +627,9 @@ class _AddTaskScreenState extends State<AddTaskScreen>
               borderRadius: BorderRadius.circular(17),
               border: Border.all(
                 color: selected
-                    ? color.withOpacity(0.8)
+                    ? color.withOpacity(0.75)
                     : Colors.white.withOpacity(0.05),
               ),
-              boxShadow: selected
-                  ? [
-                      BoxShadow(
-                        color: color.withOpacity(0.16),
-                        blurRadius: 20,
-                        offset: const Offset(0, 8),
-                      ),
-                    ]
-                  : [],
             ),
             child: Column(
               children: [
@@ -626,7 +644,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
                   style: TextStyle(
                     color: selected ? Colors.white : Colors.white,
                     fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ],
@@ -641,7 +659,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     return GestureDetector(
       onTap: pickDueDate,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
+        duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutCubic,
         width: double.infinity,
         padding: const EdgeInsets.all(16),
@@ -656,8 +674,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
         ),
         child: Row(
           children: [
-            AnimatedContainer(
-              duration: const Duration(milliseconds: 260),
+            Container(
               width: 42,
               height: 42,
               decoration: BoxDecoration(
@@ -680,7 +697,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
                   Text(
                     selectedDueDate == null ? "Due Date" : "Selected Date",
                     style: TextStyle(
-                      color: Colors.white.withOpacity(0.45),
+                      color: Colors.white,
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
                     ),
@@ -691,7 +708,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 15,
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w900,
                     ),
                   ),
                 ],
@@ -699,12 +716,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
             ),
             if (selectedDueDate != null)
               GestureDetector(
-                onTap: () {
-                  HapticFeedback.selectionClick();
-                  setState(() {
-                    selectedDueDate = null;
-                  });
-                },
+                onTap: clearDueDate,
                 child: Container(
                   width: 34,
                   height: 34,
@@ -731,9 +743,73 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     );
   }
 
+  Widget _postponeOptions() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle("Postpone"),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: _postponeChip(
+                label: "Tomorrow",
+                days: 1,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _postponeChip(
+                label: "+3 Days",
+                days: 3,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _postponeChip(
+                label: "+1 Week",
+                days: 7,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _postponeChip({
+    required String label,
+    required int days,
+  }) {
+    return GestureDetector(
+      onTap: () => postponeByDays(days),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 240),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF102A4A),
+          borderRadius: BorderRadius.circular(17),
+          border: Border.all(
+            color: priorityColor.withOpacity(0.24),
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: priorityColor,
+              fontSize: 12,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _summaryCard() {
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 320),
+      duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -747,14 +823,14 @@ class _AddTaskScreenState extends State<AddTaskScreen>
       child: Row(
         children: [
           Icon(
-            Icons.task_alt,
+            Icons.update,
             color: priorityColor,
             size: 22,
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              "$priorityText task${selectedDueDate == null ? "" : " • Due $dueDateText"}",
+              "$priorityText task • $dueDateText",
               style: TextStyle(
                 color: Colors.white.withOpacity(0.72),
                 fontSize: 13,
@@ -767,7 +843,7 @@ class _AddTaskScreenState extends State<AddTaskScreen>
     );
   }
 
-  Widget _bottomCreateButton() {
+  Widget _bottomSaveButton() {
     return SafeArea(
       child: Container(
         padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
@@ -779,69 +855,58 @@ class _AddTaskScreenState extends State<AddTaskScreen>
             ),
           ),
         ),
-        child: ScaleTransition(
-          scale: buttonScaleAnimation,
-          child: GestureDetector(
-            onTap: createTask,
-            onTapDown: (_) => buttonController.reverse(),
-            onTapCancel: () => buttonController.forward(),
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
-              height: 58,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    priorityColor,
-                    priorityColor.withOpacity(0.72),
-                  ],
+        child: GestureDetector(
+          onTap: saveTask,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 260),
+            curve: Curves.easeOutCubic,
+            height: 58,
+            decoration: BoxDecoration(
+              color: priorityColor,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.16),
+                  blurRadius: 14,
+                  offset: const Offset(0, 8),
                 ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: priorityColor.withOpacity(0.28),
-                    blurRadius: 24,
-                    offset: const Offset(0, 12),
-                  ),
-                ],
-              ),
-              child: Center(
-                child: AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 250),
-                  child: isCreating
-                      ? const SizedBox(
-                          key: ValueKey("loader"),
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.4,
-                            valueColor: AlwaysStoppedAnimation(
-                              Colors.black,
+              ],
+            ),
+            child: Center(
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 220),
+                child: isSaving
+                    ? const SizedBox(
+                        key: ValueKey("loader"),
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.4,
+                          valueColor: AlwaysStoppedAnimation(
+                            Colors.black,
+                          ),
+                        ),
+                      )
+                    : const Row(
+                        key: ValueKey("save"),
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.save,
+                            color: Colors.black,
+                            size: 22,
+                          ),
+                          SizedBox(width: 10),
+                          Text(
+                            "Save Changes",
+                            style: TextStyle(
+                              color: Colors.black,
+                              fontSize: 15,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
-                        )
-                      : const Row(
-                          key: ValueKey("text"),
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.add_task,
-                              color: Colors.black,
-                              size: 22,
-                            ),
-                            SizedBox(width: 10),
-                            Text(
-                              "Create Task",
-                              style: TextStyle(
-                                color: Colors.black,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                ),
+                        ],
+                      ),
               ),
             ),
           ),

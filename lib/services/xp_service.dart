@@ -16,30 +16,42 @@ class XPResult {
 }
 
 class XPService {
-  static const int baseXP = 10;
+  static const int xpPerTask = 10;
+  static const int firstLevelRequirement = 100;
+  static const int levelRequirementIncrease = 50;
 
-  /// =========================
-  /// ADD XP (TASK COMPLETED)
-  /// =========================
   static Future<XPResult> addXP(Task task) async {
     final settingsBox = Hive.box<Settings>('settings');
     final historyBox = Hive.box<XPHistory>('xp_history');
 
     final settings = _getSettings(settingsBox);
-    final oldLevel = settings.currentLevel;
 
-    final xpGain = _calculateXP(task);
+    final oldLevel = settings.currentLevel;
+    final xpGain = xpPerTask;
 
     settings.totalXP += xpGain;
-    settings.currentLevel = _calculateLevel(settings.totalXP);
+    settings.currentLevel = calculateLevel(settings.totalXP);
 
     await settings.save();
 
-    await _addHistory(historyBox, xpGain, task);
+    await historyBox.add(
+      XPHistory(
+        date: DateTime.now(),
+        xpEarned: xpGain,
+        tasksCompleted: 1,
+        productivityScore: 0,
+      ),
+    );
 
     await StreakService.updateStreak();
-    await AchievementService.checkAndUnlock();
+
+    final newlyUnlocked = await AchievementService.checkAndUnlock();
+
     await AudioService.playComplete();
+
+    if (newlyUnlocked.isNotEmpty) {
+      await AudioService.playAchievement();
+    }
 
     final leveledUp = settings.currentLevel > oldLevel;
 
@@ -50,81 +62,120 @@ class XPService {
     return XPResult(xpGain, leveledUp);
   }
 
-  /// =========================
-  /// REMOVE XP (TASK UNCHECK)
-  /// =========================
+  static Future<XPResult> addFocusXP({
+    required int xpAmount,
+  }) async {
+    final settingsBox = Hive.box<Settings>('settings');
+    final historyBox = Hive.box<XPHistory>('xp_history');
+
+    final settings = _getSettings(settingsBox);
+
+    final oldLevel = settings.currentLevel;
+
+    settings.totalXP += xpAmount;
+    settings.currentLevel = calculateLevel(settings.totalXP);
+
+    await settings.save();
+
+    await historyBox.add(
+      XPHistory(
+        date: DateTime.now(),
+        xpEarned: xpAmount,
+        tasksCompleted: 0,
+        productivityScore: 0,
+      ),
+    );
+
+    final newlyUnlocked = await AchievementService.checkAndUnlock();
+
+    if (newlyUnlocked.isNotEmpty) {
+      await AudioService.playAchievement();
+    }
+
+    final leveledUp = settings.currentLevel > oldLevel;
+
+    if (leveledUp) {
+      await AudioService.playLevelUp();
+    }
+
+    return XPResult(xpAmount, leveledUp);
+  }
+
   static Future<XPResult> removeXP(Task task) async {
     final settingsBox = Hive.box<Settings>('settings');
     final settings = _getSettings(settingsBox);
 
-    final xpLoss = _calculateXP(task);
+    settings.totalXP -= xpPerTask;
 
-    settings.totalXP -= xpLoss;
-    if (settings.totalXP < 0) settings.totalXP = 0;
+    if (settings.totalXP < 0) {
+      settings.totalXP = 0;
+    }
 
-    settings.currentLevel = _calculateLevel(settings.totalXP);
+    settings.currentLevel = calculateLevel(settings.totalXP);
 
     await settings.save();
 
-    // IMPORTANT:
-    // No history write on negative XP (prevents productivity inflation bugs)
-
-    await AchievementService.checkAndUnlock();
-
-    return XPResult(-xpLoss, false);
+    return XPResult(-xpPerTask, false);
   }
 
-  /// =========================
-  /// XP CALCULATION (SOURCE OF TRUTH)
-  /// =========================
-  static int _calculateXP(Task task) {
-    switch (task.priority) {
-      case TaskPriority.low:
-        return baseXP;
-      case TaskPriority.medium:
-        return baseXP * 2;
-      case TaskPriority.high:
-        return baseXP * 3;
+  static int calculateLevel(int totalXP) {
+    int level = 1;
+    int remainingXP = totalXP;
+
+    while (remainingXP >= xpNeededForLevel(level)) {
+      remainingXP -= xpNeededForLevel(level);
+      level++;
     }
+
+    return level;
   }
 
-  /// =========================
-  /// LEVEL SYSTEM
-  /// =========================
-  static int _calculateLevel(int xp) {
-    return (xp / 100).floor() + 1;
+  static int xpNeededForLevel(int level) {
+    return firstLevelRequirement + ((level - 1) * levelRequirementIncrease);
   }
 
-  /// =========================
-  /// SAFE SETTINGS ACCESS
-  /// =========================
+  static int xpAtStartOfLevel(int level) {
+    int total = 0;
+
+    for (int i = 1; i < level; i++) {
+      total += xpNeededForLevel(i);
+    }
+
+    return total;
+  }
+
+  static int xpIntoCurrentLevel(int totalXP) {
+    final level = calculateLevel(totalXP);
+    final levelStartXP = xpAtStartOfLevel(level);
+
+    return totalXP - levelStartXP;
+  }
+
+  static int xpNeededForCurrentLevel(int totalXP) {
+    final level = calculateLevel(totalXP);
+    return xpNeededForLevel(level);
+  }
+
+  static double progressToNextLevel(int totalXP) {
+    final currentXP = xpIntoCurrentLevel(totalXP);
+    final neededXP = xpNeededForCurrentLevel(totalXP);
+
+    if (neededXP <= 0) return 0;
+
+    return (currentXP / neededXP).clamp(0, 1).toDouble();
+  }
+
   static Settings _getSettings(Box<Settings> box) {
     if (box.isEmpty) {
-      final s = Settings();
-      box.add(s);
-      return s;
+      final settings = Settings(
+        totalXP: 0,
+        currentLevel: 1,
+      );
+
+      box.add(settings);
+      return settings;
     }
+
     return box.getAt(0)!;
-  }
-
-  /// =========================
-  /// XP HISTORY TRACKER
-  /// =========================
-  static Future<void> _addHistory(
-    Box<XPHistory> box,
-    int xp,
-    Task task,
-  ) async {
-    // ONLY store positive XP events
-    if (xp <= 0) return;
-
-    final history = XPHistory(
-      date: DateTime.now(),
-      xpEarned: xp,
-      tasksCompleted: 1,
-      productivityScore: 0,
-    );
-
-    await box.add(history);
   }
 }

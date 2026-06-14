@@ -7,8 +7,10 @@ import 'models/streak.dart';
 import 'models/achievement.dart';
 import 'models/xp_history.dart';
 import 'models/daily_challenge.dart';
+import 'models/user_profile.dart';
 
 import 'screens/splash_screen.dart';
+
 import 'theme/app_theme.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -18,51 +20,80 @@ Future<void> main() async {
 
   await Hive.initFlutter();
 
-  // ================= MODELS =================
-  Hive.registerAdapter(TaskAdapter());
-  Hive.registerAdapter(TaskPriorityAdapter());
+  _registerAdapters();
 
-  Hive.registerAdapter(SettingsAdapter());
-  Hive.registerAdapter(StreakAdapter());
-
-  Hive.registerAdapter(AchievementAdapter());
-  Hive.registerAdapter(AchievementCategoryAdapter());
-
-  Hive.registerAdapter(XPHistoryAdapter());
-  Hive.registerAdapter(DailyChallengeAdapter());
-
-  // ================= BOXES =================
   await Hive.openBox<Task>('tasks');
   await Hive.openBox<Settings>('settings');
   await Hive.openBox<Streak>('streak');
   await Hive.openBox<Achievement>('achievements');
   await Hive.openBox<XPHistory>('xp_history');
   await Hive.openBox<DailyChallenge>('daily_challenges');
+  await Hive.openBox<UserProfile>('user_profile');
 
-  // ================= SAFE INIT =================
   _initSafeDefaults();
 
   runApp(const PlanzyApp());
 }
 
-/// Ensures app never crashes due to empty Hive boxes
+void _registerAdapters() {
+  if (!Hive.isAdapterRegistered(0)) {
+    Hive.registerAdapter(TaskPriorityAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(1)) {
+    Hive.registerAdapter(TaskAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(2)) {
+    Hive.registerAdapter(SettingsAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(3)) {
+    Hive.registerAdapter(StreakAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(4)) {
+    Hive.registerAdapter(AchievementCategoryAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(5)) {
+    Hive.registerAdapter(AchievementAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(6)) {
+    Hive.registerAdapter(XPHistoryAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(7)) {
+    Hive.registerAdapter(DailyChallengeAdapter());
+  }
+
+  if (!Hive.isAdapterRegistered(8)) {
+    Hive.registerAdapter(UserProfileAdapter());
+  }
+}
+
 void _initSafeDefaults() {
   final settingsBox = Hive.box<Settings>('settings');
   final streakBox = Hive.box<Streak>('streak');
 
   if (settingsBox.isEmpty) {
-    settingsBox.add(Settings(
-      totalXP: 0,
-      currentLevel: 1,
-    ));
+    settingsBox.add(
+      Settings(
+        totalXP: 0,
+        currentLevel: 1,
+      ),
+    );
   }
 
   if (streakBox.isEmpty) {
-    streakBox.add(Streak(
-      currentStreak: 0,
-      longestStreak: 0,
-      lastActiveDate: DateTime.now(),
-    ));
+    streakBox.add(
+      Streak(
+        currentStreak: 0,
+        longestStreak: 0,
+        lastActiveDate: DateTime.now(),
+      ),
+    );
   }
 }
 
